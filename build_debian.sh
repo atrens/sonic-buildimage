@@ -37,7 +37,7 @@ if [[ $CONFIGURED_ARCH == armhf || $CONFIGURED_ARCH == arm64 ]]; then
 else
     DOCKER_VERSION=5:18.09.8~3-0~debian-stretch
 fi
-LINUX_KERNEL_VERSION=4.9.0-9-2
+LINUX_KERNEL_VERSION=4.9.0-11-2
 
 ## Working directory to prepare the file system
 FILESYSTEM_ROOT=./fsroot
@@ -139,7 +139,9 @@ sudo dpkg --root=$FILESYSTEM_ROOT -i $debs_path/initramfs-tools_*.deb || \
 sudo dpkg --root=$FILESYSTEM_ROOT -i $debs_path/linux-image-${LINUX_KERNEL_VERSION}-*_${CONFIGURED_ARCH}.deb || \
     sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y install -f
 sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y install acl
-[[ $CONFIGURED_ARCH == amd64 ]] && sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y install dmidecode
+if [[ $CONFIGURED_ARCH == amd64 ]]; then
+    sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y install dmidecode hdparm
+fi
 
 ## Update initramfs for booting with squashfs+overlay
 cat files/initramfs-tools/modules | sudo tee -a $FILESYSTEM_ROOT/etc/initramfs-tools/modules > /dev/null
@@ -320,10 +322,6 @@ fi
 ## Disable kexec supported reboot which was installed by default
 sudo sed -i 's/LOAD_KEXEC=true/LOAD_KEXEC=false/' $FILESYSTEM_ROOT/etc/default/kexec
 
-## Modifty ntp default configuration: disable initial jump (add -x), and disable
-## jump when time difference is greater than 1000 seconds (remove -g).
-sudo sed -i "s/NTPD_OPTS='-g'/NTPD_OPTS='-x'/" $FILESYSTEM_ROOT/etc/default/ntp
-
 ## Remove sshd host keys, and will regenerate on first sshd start
 sudo rm -f $FILESYSTEM_ROOT/etc/ssh/ssh_host_*_key*
 sudo cp files/sshd/host-ssh-keygen.sh $FILESYSTEM_ROOT/usr/local/bin/
@@ -380,6 +378,12 @@ set /files/etc/sysctl.conf/net.ipv4.conf.all.arp_ignore 2
 
 set /files/etc/sysctl.conf/net.ipv4.neigh.default.base_reachable_time_ms 1800000
 set /files/etc/sysctl.conf/net.ipv6.neigh.default.base_reachable_time_ms 1800000
+set /files/etc/sysctl.conf/net.ipv4.neigh.default.gc_thresh1 1024
+set /files/etc/sysctl.conf/net.ipv6.neigh.default.gc_thresh1 1024
+set /files/etc/sysctl.conf/net.ipv4.neigh.default.gc_thresh2 2048
+set /files/etc/sysctl.conf/net.ipv6.neigh.default.gc_thresh2 2048
+set /files/etc/sysctl.conf/net.ipv4.neigh.default.gc_thresh3 4096
+set /files/etc/sysctl.conf/net.ipv6.neigh.default.gc_thresh3 4096
 
 set /files/etc/sysctl.conf/net.ipv6.conf.default.forwarding 1
 set /files/etc/sysctl.conf/net.ipv6.conf.all.forwarding 1

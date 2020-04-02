@@ -277,15 +277,14 @@ sudo bash -c "echo dhcp_as_static=true >> $FILESYSTEM_ROOT/etc/sonic/updategraph
 {% else %}
 sudo bash -c "echo enabled=false > $FILESYSTEM_ROOT/etc/sonic/updategraph.conf"
 {% endif %}
-sudo bash -c "echo '{ \"DEVICE_METADATA\": { \"localhost\": { \"default_bgp_status\": {% if shutdown_bgp_on_start == "y" %}\"down\"{% else %}\"up\"{% endif %}, \"default_pfcwd_status\": {% if enable_pfcwd_on_start == "y" %}\"enable\"{% else %}\"disable\"{% endif %}  } },
-{%- print ' \\"CRM\\": { \\"Config\\": { \\"polling_interval\\": \\"300\\", ' %}
-{%- for crm_res in ["ipv4_route", "ipv6_route", "ipv4_nexthop", "ipv6_nexthop", "ipv4_neighbor", "ipv6_neighbor", "nexthop_group_member", "nexthop_group", "acl_table", "acl_group", "acl_entry", "acl_counter", "fdb_entry"] -%}
-\"{{crm_res}}_threshold_type\": \"percentage\", \"{{crm_res}}_low_threshold\": \"70\", \"{{crm_res}}_high_threshold\": \"85\"{% if not loop.last %}, {% endif %}
-{%- endfor %} } } }' >> $FILESYSTEM_ROOT/etc/sonic/init_cfg.json"
+
+# Generate initial SONiC configuration file
+j2 files/build_templates/init_cfg.json.j2 | sudo tee $FILESYSTEM_ROOT/etc/sonic/init_cfg.json
 
 # Copy config-setup script and service file
 j2 files/build_templates/config-setup.service.j2 | sudo tee $FILESYSTEM_ROOT/etc/systemd/system/config-setup.service
 sudo cp $IMAGE_CONFIGS/config-setup/config-setup $FILESYSTEM_ROOT/usr/bin/config-setup
+echo "config-setup.service" | sudo tee -a $GENERATED_SERVICE_FILE
 sudo LANG=C chroot $FILESYSTEM_ROOT systemctl enable config-setup.service
 
 # Copy SNMP configuration files
@@ -388,11 +387,13 @@ if [[ $CONFIGURED_ARCH == armhf || $CONFIGURED_ARCH == arm64 ]]; then
 fi
 
 {% if installer_images.strip() -%}
+sudo mkdir $FILESYSTEM_ROOT/target
+sudo mount --bind target $FILESYSTEM_ROOT/target
 sudo chroot $FILESYSTEM_ROOT docker $SONIC_NATIVE_DOCKERD_FOR_DOCKERFS info
 {% for image in installer_images.strip().split(' ') -%}
 {% set imagefilename = image.split('/')|last -%}
 {% set imagename = imagefilename.split('.')|first -%}
-sudo LANG=C chroot $FILESYSTEM_ROOT docker $SONIC_NATIVE_DOCKERD_FOR_DOCKERFS load < {{image}}
+sudo LANG=C chroot $FILESYSTEM_ROOT docker $SONIC_NATIVE_DOCKERD_FOR_DOCKERFS load -i {{image}}
 sudo LANG=C chroot $FILESYSTEM_ROOT docker $SONIC_NATIVE_DOCKERD_FOR_DOCKERFS tag {{imagename}}:latest {{imagename}}:$(sonic_get_version)
 {% if imagename.endswith('-dbg') %}
 {% set imagebasename = imagename.replace('-dbg', '') -%}
@@ -400,6 +401,8 @@ sudo LANG=C chroot $FILESYSTEM_ROOT docker $SONIC_NATIVE_DOCKERD_FOR_DOCKERFS ta
 sudo LANG=C chroot $FILESYSTEM_ROOT docker $SONIC_NATIVE_DOCKERD_FOR_DOCKERFS tag {{imagename}}:latest {{imagebasename}}:latest
 {% endif %}
 {% endfor %}
+sudo umount $FILESYSTEM_ROOT/target
+sudo rm -r $FILESYSTEM_ROOT/target
 if [[ $CONFIGURED_ARCH == armhf || $CONFIGURED_ARCH == arm64 ]]; then
     sudo umount $FILESYSTEM_ROOT/dockerfs
     sudo rm -fr $FILESYSTEM_ROOT/dockerfs
@@ -432,6 +435,9 @@ sudo LANG=C chroot $FILESYSTEM_ROOT umount -lf /sys
 sudo LANG=C cp $SCRIPTS_DIR/swss.sh $FILESYSTEM_ROOT/usr/local/bin/swss.sh
 sudo LANG=C cp $SCRIPTS_DIR/syncd.sh $FILESYSTEM_ROOT/usr/local/bin/syncd.sh
 
+# Copy sonic-netns-exec script
+sudo LANG=C cp $SCRIPTS_DIR/sonic-netns-exec $FILESYSTEM_ROOT/usr/bin/sonic-netns-exec
+
 # Copy systemd timer configuration
 # It implements delayed start of services
 sudo cp $BUILD_TEMPLATES/snmp.timer $FILESYSTEM_ROOT/etc/systemd/system/
@@ -457,6 +463,7 @@ sudo cp {{src}} $FILESYSTEM_ROOT/{{dst}}
 sudo mkdir -p $FILESYSTEM_ROOT/etc/mlnx/
 sudo cp $files_path/$MLNX_SPC_FW_FILE $FILESYSTEM_ROOT/etc/mlnx/fw-SPC.mfa
 sudo cp $files_path/$MLNX_SPC2_FW_FILE $FILESYSTEM_ROOT/etc/mlnx/fw-SPC2.mfa
+sudo cp $files_path/$MLNX_SPC3_FW_FILE $FILESYSTEM_ROOT/etc/mlnx/fw-SPC3.mfa
 sudo cp $files_path/$ISSU_VERSION_FILE $FILESYSTEM_ROOT/etc/mlnx/issu-version
 sudo cp $files_path/$MLNX_FFB_SCRIPT $FILESYSTEM_ROOT/usr/bin/mlnx-ffb.sh
 sudo cp $files_path/$ONIE_FW_UPDATE $FILESYSTEM_ROOT/usr/bin/onie-fw-update.sh
