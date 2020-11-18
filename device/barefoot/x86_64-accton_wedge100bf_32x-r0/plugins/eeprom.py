@@ -77,12 +77,12 @@ EEPROM_SYMLINK = "/var/run/platform/eeprom/syseeprom"
 EEPROM_STATUS = "/var/run/platform/eeprom/status"
 
 class board(eeprom_tlvinfo.TlvInfoDecoder):
-    RETRIES = 3
+    RETRIES = 35
 
     def __init__(self, name, path, cpld_root, ro):
 
         with open(os.path.dirname(__file__) + "/logging.conf", 'r') as f:
-            config_dict = yaml.load(f)
+            config_dict = yaml.load(f, yaml.SafeLoader)
             logging.config.dictConfig(config_dict)
 
         if not os.path.exists(os.path.dirname(EEPROM_SYMLINK)):
@@ -101,8 +101,10 @@ class board(eeprom_tlvinfo.TlvInfoDecoder):
         super(board, self).__init__(self.eeprom_path, 0, EEPROM_STATUS, True)
 
         for attempt in range(self.RETRIES):
-            if self.eeprom_init() or (attempt + 1 >= self.RETRIES):
+            if self.eeprom_init():
                 break
+            if attempt + 1 == self.RETRIES:
+                raise RuntimeError("eeprom.py: Initialization failed")
             time.sleep(1)
 
     def thrift_setup(self):

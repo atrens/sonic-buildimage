@@ -31,13 +31,8 @@ set -x -e
 CONFIGURED_ARCH=$([ -f .arch ] && cat .arch || echo amd64)
 
 ## docker engine version (with platform)
-if [[ $CONFIGURED_ARCH == armhf || $CONFIGURED_ARCH == arm64 ]]; then
-    # Version name differs between ARCH, copying same version as in sonic-slave docker
-    DOCKER_VERSION=18.06.3~ce~3-0~debian
-else
-    DOCKER_VERSION=5:18.09.8~3-0~debian-stretch
-fi
-LINUX_KERNEL_VERSION=4.9.0-11-2
+DOCKER_VERSION=5:18.09.8~3-0~debian-$IMAGE_DISTRO
+LINUX_KERNEL_VERSION=4.19.0-9-2
 
 ## Working directory to prepare the file system
 FILESYSTEM_ROOT=./fsroot
@@ -81,9 +76,9 @@ if [[ $CONFIGURED_ARCH == armhf || $CONFIGURED_ARCH == arm64 ]]; then
     # qemu arm bin executable for cross-building
     sudo mkdir -p $FILESYSTEM_ROOT/usr/bin
     sudo cp /usr/bin/qemu*static $FILESYSTEM_ROOT/usr/bin || true
-    sudo http_proxy=$http_proxy debootstrap --variant=minbase --arch $CONFIGURED_ARCH stretch $FILESYSTEM_ROOT http://deb.debian.org/debian
+    sudo http_proxy=$http_proxy debootstrap --variant=minbase --arch $CONFIGURED_ARCH $IMAGE_DISTRO $FILESYSTEM_ROOT http://deb.debian.org/debian
 else
-    sudo http_proxy=$http_proxy debootstrap --variant=minbase --arch $CONFIGURED_ARCH stretch $FILESYSTEM_ROOT http://debian-archive.trafficmanager.net/debian
+    sudo http_proxy=$http_proxy debootstrap --variant=minbase --arch $CONFIGURED_ARCH $IMAGE_DISTRO $FILESYSTEM_ROOT http://debian-archive.trafficmanager.net/debian
 fi
 
 ## Config hostname and hosts, otherwise 'sudo ...' will complain 'sudo: unable to resolve host ...'
@@ -98,12 +93,12 @@ sudo LANG=C chroot $FILESYSTEM_ROOT /bin/bash -c 'echo "sysfs /sys sysfs default
 ## Setup proxy
 [ -n "$http_proxy" ] && sudo /bin/bash -c "echo 'Acquire::http::Proxy \"$http_proxy\";' > $FILESYSTEM_ROOT/etc/apt/apt.conf.d/01proxy"
 
+trap_push 'sudo LANG=C chroot $FILESYSTEM_ROOT umount /proc || true'
+sudo LANG=C chroot $FILESYSTEM_ROOT mount proc /proc -t proc
 ## Note: mounting is necessary to makedev and install linux image
 echo '[INFO] Mount all'
 ## Output all the mounted device for troubleshooting
-mount
-trap_push 'sudo umount $FILESYSTEM_ROOT/proc || true'
-sudo LANG=C chroot $FILESYSTEM_ROOT mount proc /proc -t proc
+sudo LANG=C chroot $FILESYSTEM_ROOT mount
 
 ## Pointing apt to public apt mirrors and getting latest packages, needed for latest security updates
 sudo cp files/apt/sources.list.$CONFIGURED_ARCH $FILESYSTEM_ROOT/etc/apt/sources.list
@@ -129,7 +124,7 @@ fi
 ## 2. mount supports squashfs
 ## However, 'dpkg -i' plus 'apt-get install -f' will ignore the recommended dependency. So
 ## we install busybox explicitly
-sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y install busybox
+sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y install busybox linux-base
 echo '[INFO] Install SONiC linux kernel image'
 ## Note: duplicate apt-get command to ensure every line return zero
 sudo dpkg --root=$FILESYSTEM_ROOT -i $debs_path/initramfs-tools-core_*.deb || \
@@ -165,6 +160,10 @@ sudo chmod +x $FILESYSTEM_ROOT/etc/initramfs-tools/scripts/init-premount/arista-
 sudo cp files/initramfs-tools/resize-rootfs $FILESYSTEM_ROOT/etc/initramfs-tools/scripts/init-premount/resize-rootfs
 sudo chmod +x $FILESYSTEM_ROOT/etc/initramfs-tools/scripts/init-premount/resize-rootfs
 
+# Hook into initramfs: run fsck to repair a non-clean filesystem prior to be mounted
+sudo cp files/initramfs-tools/fsck-rootfs $FILESYSTEM_ROOT/etc/initramfs-tools/scripts/init-premount/fsck-rootfs
+sudo chmod +x $FILESYSTEM_ROOT/etc/initramfs-tools/scripts/init-premount/fsck-rootfs
+
 ## Hook into initramfs: after partition mount and loop file mount
 ## 1. Prepare layered file system
 ## 2. Bind-mount docker working directory (docker overlay storage cannot work over overlay rootfs)
@@ -183,10 +182,9 @@ if [[ $CONFIGURED_ARCH == armhf || $CONFIGURED_ARCH == arm64 ]]; then
     sudo chmod +x $FILESYSTEM_ROOT/etc/initramfs-tools/hooks/uboot-utils
     cat files/initramfs-tools/modules.arm | sudo tee -a $FILESYSTEM_ROOT/etc/initramfs-tools/modules > /dev/null
 fi
-
-if [[ $CONFIGURED_ARCH == amd64 ]]; then
-    ## Install latest intel ixgbe driver
-    sudo cp $files_path/ixgbe.ko $FILESYSTEM_ROOT/lib/modules/${LINUX_KERNEL_VERSION}-amd64/kernel/drivers/net/ethernet/intel/ixgbe/ixgbe.ko
+# Update initramfs for load platform specific modules
+if [ -f platform/$CONFIGURED_PLATFORM/modules ]; then
+    cat platform/$CONFIGURED_PLATFORM/modules | sudo tee -a $FILESYSTEM_ROOT/etc/initramfs-tools/modules > /dev/null
 fi
 
 ## Install docker
@@ -199,14 +197,42 @@ sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y install apt-transport-https \
                                                        curl \
                                                        gnupg2 \
                                                        software-properties-common
+if [[ $CONFIGURED_ARCH == armhf ]]; then
+    # update ssl ca certificates for secure pem
+    sudo https_proxy=$https_proxy LANG=C chroot $FILESYSTEM_ROOT c_rehash
+fi
 sudo https_proxy=$https_proxy LANG=C chroot $FILESYSTEM_ROOT curl -o /tmp/docker.gpg -fsSL https://download.docker.com/linux/debian/gpg
 sudo LANG=C chroot $FILESYSTEM_ROOT apt-key add /tmp/docker.gpg
 sudo LANG=C chroot $FILESYSTEM_ROOT rm /tmp/docker.gpg
 sudo LANG=C chroot $FILESYSTEM_ROOT add-apt-repository \
-                                    "deb [arch=$CONFIGURED_ARCH] https://download.docker.com/linux/debian stretch stable"
+                                    "deb [arch=$CONFIGURED_ARCH] https://download.docker.com/linux/debian $IMAGE_DISTRO stable"
 sudo LANG=C chroot $FILESYSTEM_ROOT apt-get update
-sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y install docker-ce=${DOCKER_VERSION}
+if dpkg --compare-versions ${DOCKER_VERSION} ge "18.09"; then
+    sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y install docker-ce=${DOCKER_VERSION} docker-ce-cli=${DOCKER_VERSION}
+else
+    sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y install docker-ce=${DOCKER_VERSION}
+fi
+
 sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y remove software-properties-common gnupg2
+
+if [ "$INCLUDE_KUBERNETES" == "y" ]
+then
+    ## Install Kubernetes
+    echo '[INFO] Install kubernetes'
+    sudo https_proxy=$https_proxy LANG=C chroot $FILESYSTEM_ROOT curl -fsSL \
+        https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
+        sudo LANG=C chroot $FILESYSTEM_ROOT apt-key add -
+    ## Check out the sources list update matches current Debian version
+    sudo cp files/image_config/kubernetes/kubernetes.list $FILESYSTEM_ROOT/etc/apt/sources.list.d/
+    sudo LANG=C chroot $FILESYSTEM_ROOT apt-get update
+    sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y install kubernetes-cni=${KUBERNETES_CNI_VERSION}-00
+    sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y install kubelet=${KUBERNETES_VERSION}-00
+    sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y install kubectl=${KUBERNETES_VERSION}-00
+    sudo LANG=C chroot $FILESYSTEM_ROOT apt-get -y install kubeadm=${KUBERNETES_VERSION}-00
+    # kubeadm package auto install kubelet & kubectl
+else
+    echo '[INFO] Skipping Install kubernetes'
+fi
 
 ## Add docker config drop-in to specify dockerd command line
 sudo mkdir -p $FILESYSTEM_ROOT/etc/systemd/system/docker.service.d/
@@ -215,9 +241,12 @@ sudo cp files/docker/docker.service.conf $_
 ## Fix systemd race between docker and containerd
 sudo sed -i '/After=/s/$/ containerd.service/' $FILESYSTEM_ROOT/lib/systemd/system/docker.service
 
+## Create redis group
+sudo LANG=C chroot $FILESYSTEM_ROOT groupadd -f redis
+
 ## Create default user
-## Note: user should be in the group with the same name, and also in sudo/docker group
-sudo LANG=C chroot $FILESYSTEM_ROOT useradd -G sudo,docker $USERNAME -c "$DEFAULT_USERINFO" -m -s /bin/bash
+## Note: user should be in the group with the same name, and also in sudo/docker/redis groups
+sudo LANG=C chroot $FILESYSTEM_ROOT useradd -G sudo,docker,redis $USERNAME -c "$DEFAULT_USERINFO" -m -s /bin/bash
 ## Create password for the default user
 echo "$USERNAME:$PASSWORD" | sudo LANG=C chroot $FILESYSTEM_ROOT chpasswd
 
@@ -247,6 +276,8 @@ sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y in
     openssh-server          \
     python                  \
     python-setuptools       \
+    python3-setuptools      \
+    python-jsonschema       \
     python-apt              \
     traceroute              \
     iputils-ping            \
@@ -280,14 +311,18 @@ sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y in
     ipmitool                \
     ndisc6                  \
     makedumpfile            \
-    conntrack
-
+    conntrack               \
+    python-pip              \
+    python3-pip             \
+    cron                    \
+    haveged                 \
+    jq
 
 if [[ $CONFIGURED_ARCH == amd64 ]]; then
 ## Pre-install the fundamental packages for amd64 (x86)
 sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y install      \
     flashrom                \
-    mcelog
+    rasdaemon
 fi
 
 ## Set /etc/shadow permissions to -rw-------.
@@ -307,9 +342,9 @@ sudo sed -i '/^#.* en_US.* /s/^#//' $FILESYSTEM_ROOT/etc/locale.gen && \
 sudo LANG=en_US.UTF-8 DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT update-locale "LANG=en_US.UTF-8"
 sudo LANG=C chroot $FILESYSTEM_ROOT bash -c "find /usr/share/i18n/locales/ ! -name 'en_US' -type f -exec rm -f {} +"
 
-# Install certain fundamental packages from stretch-backports in order to get
+# Install certain fundamental packages from $IMAGE_DISTRO-backports in order to get
 # more up-to-date (but potentially less stable) versions
-sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y -t stretch-backports install \
+sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y -t $IMAGE_DISTRO-backports install \
     picocom
 
 if [[ $CONFIGURED_ARCH == amd64 ]]; then
@@ -351,75 +386,42 @@ EOF
 sudo sed -i 's/^ListenAddress ::/#ListenAddress ::/' $FILESYSTEM_ROOT/etc/ssh/sshd_config
 sudo sed -i 's/^#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' $FILESYSTEM_ROOT/etc/ssh/sshd_config
 
-## Config sysctl
-sudo mkdir -p $FILESYSTEM_ROOT/var/core
-sudo augtool --autosave "
-set /files/etc/sysctl.conf/kernel.core_pattern '|/usr/bin/coredump-compress %e %t %p'
+## Config rsyslog
+sudo augtool -r $FILESYSTEM_ROOT --autosave "
+rm /files/lib/systemd/system/rsyslog.service/Service/ExecStart/arguments
+set /files/lib/systemd/system/rsyslog.service/Service/ExecStart/arguments/1 -n
+"
 
+sudo mkdir -p $FILESYSTEM_ROOT/var/core
+
+# Config sysctl
+sudo augtool --autosave "
+set /files/etc/sysctl.conf/kernel.core_pattern '|/usr/local/bin/coredump-compress %e %t %p %P'
 set /files/etc/sysctl.conf/kernel.softlockup_panic 1
 set /files/etc/sysctl.conf/kernel.panic 10
 set /files/etc/sysctl.conf/vm.panic_on_oom 2
 set /files/etc/sysctl.conf/fs.suid_dumpable 2
-
-set /files/etc/sysctl.conf/net.ipv4.conf.default.forwarding 1
-set /files/etc/sysctl.conf/net.ipv4.conf.all.forwarding 1
-set /files/etc/sysctl.conf/net.ipv4.conf.eth0.forwarding 0
-
-set /files/etc/sysctl.conf/net.ipv4.conf.default.arp_accept 0
-set /files/etc/sysctl.conf/net.ipv4.conf.default.arp_announce 0
-set /files/etc/sysctl.conf/net.ipv4.conf.default.arp_filter 0
-set /files/etc/sysctl.conf/net.ipv4.conf.default.arp_notify 0
-set /files/etc/sysctl.conf/net.ipv4.conf.default.arp_ignore 0
-set /files/etc/sysctl.conf/net.ipv4.conf.all.arp_accept 0
-set /files/etc/sysctl.conf/net.ipv4.conf.all.arp_announce 1
-set /files/etc/sysctl.conf/net.ipv4.conf.all.arp_filter 0
-set /files/etc/sysctl.conf/net.ipv4.conf.all.arp_notify 1
-set /files/etc/sysctl.conf/net.ipv4.conf.all.arp_ignore 2
-
-set /files/etc/sysctl.conf/net.ipv4.neigh.default.base_reachable_time_ms 1800000
-set /files/etc/sysctl.conf/net.ipv6.neigh.default.base_reachable_time_ms 1800000
-set /files/etc/sysctl.conf/net.ipv4.neigh.default.gc_thresh1 1024
-set /files/etc/sysctl.conf/net.ipv6.neigh.default.gc_thresh1 1024
-set /files/etc/sysctl.conf/net.ipv4.neigh.default.gc_thresh2 2048
-set /files/etc/sysctl.conf/net.ipv6.neigh.default.gc_thresh2 2048
-set /files/etc/sysctl.conf/net.ipv4.neigh.default.gc_thresh3 4096
-set /files/etc/sysctl.conf/net.ipv6.neigh.default.gc_thresh3 4096
-
-set /files/etc/sysctl.conf/net.ipv6.conf.default.forwarding 1
-set /files/etc/sysctl.conf/net.ipv6.conf.all.forwarding 1
-set /files/etc/sysctl.conf/net.ipv6.conf.eth0.forwarding 0
-
-set /files/etc/sysctl.conf/net.ipv6.conf.default.accept_dad 0
-set /files/etc/sysctl.conf/net.ipv6.conf.all.accept_dad 0
-set /files/etc/sysctl.conf/net.ipv6.conf.eth0.accept_dad 0
-
-set /files/etc/sysctl.conf/net.ipv6.conf.default.keep_addr_on_down 1
-set /files/etc/sysctl.conf/net.ipv6.conf.all.keep_addr_on_down 1
-set /files/etc/sysctl.conf/net.ipv6.conf.eth0.keep_addr_on_down 1
-
-set /files/etc/sysctl.conf/net.ipv4.tcp_l3mdev_accept 1
-set /files/etc/sysctl.conf/net.ipv4.udp_l3mdev_accept 1
-
-set /files/etc/sysctl.conf/net.core.rmem_max 2097152
-set /files/etc/sysctl.conf/net.core.wmem_max 2097152
-
-set /files/etc/sysctl.conf/net.core.somaxconn 512
-
 " -r $FILESYSTEM_ROOT
 
-if [[ $CONFIGURED_ARCH == amd64 ]]; then
-    # Configure mcelog to log machine checks to syslog
-    sudo sed -i 's/^#syslog = yes/syslog = yes/' $FILESYSTEM_ROOT/etc/mcelog/mcelog.conf
-fi
+sysctl_net_cmd_string=""
+while read line; do
+  [[ "$line" =~ ^#.*$ ]] && continue
+  sysctl_net_conf_key=`echo $line | awk -F '=' '{print $1}'`
+  sysctl_net_conf_value=`echo $line | awk -F '=' '{print $2}'`
+  sysctl_net_cmd_string=$sysctl_net_cmd_string"set /files/etc/sysctl.conf/$sysctl_net_conf_key $sysctl_net_conf_value"$'\n'
+done < files/image_config/sysctl/sysctl-net.conf
 
-## docker-py is needed by Ansible docker module
-sudo https_proxy=$https_proxy LANG=C chroot $FILESYSTEM_ROOT easy_install pip
-sudo https_proxy=$https_proxy LANG=C chroot $FILESYSTEM_ROOT pip install 'docker-py==1.6.0'
+sudo augtool --autosave "$sysctl_net_cmd_string" -r $FILESYSTEM_ROOT
+
+# docker Python API package is needed by Ansible docker module as well as some SONiC applications
+sudo https_proxy=$https_proxy LANG=C chroot $FILESYSTEM_ROOT pip2 install 'docker==4.1.0'
+sudo https_proxy=$https_proxy LANG=C chroot $FILESYSTEM_ROOT pip3 install 'docker==4.3.1'
+
 ## Note: keep pip installed for maintainance purpose
 
 ## Get gcc and python dev pkgs
 sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y install gcc libpython2.7-dev
-sudo https_proxy=$https_proxy LANG=C chroot $FILESYSTEM_ROOT pip install 'netifaces==0.10.7'
+sudo https_proxy=$https_proxy LANG=C chroot $FILESYSTEM_ROOT pip2 install 'netifaces==0.10.7'
 
 ## Create /var/run/redis folder for docker-database to mount
 sudo mkdir -p $FILESYSTEM_ROOT/var/run/redis
@@ -442,10 +444,14 @@ if [ -f files/image_config/ntp/ntp ]; then
     sudo cp ./files/image_config/ntp/ntp $FILESYSTEM_ROOT/etc/init.d/
 fi
 
+if [ -f files/image_config/ntp/ntp-systemd-wrapper ]; then
+    sudo cp ./files/image_config/ntp/ntp-systemd-wrapper $FILESYSTEM_ROOT/usr/lib/ntp/
+fi
+
 ## Version file
 sudo mkdir -p $FILESYSTEM_ROOT/etc/sonic
 sudo tee $FILESYSTEM_ROOT/etc/sonic/sonic_version.yml > /dev/null <<EOF
-build_version: '$(sonic_get_version)'
+build_version: '${SONIC_IMAGE_VERSION}'
 debian_version: '$(cat $FILESYSTEM_ROOT/etc/debian_version)'
 kernel_version: '$kversion'
 asic_type: $sonic_asic_platform
@@ -459,7 +465,8 @@ EOF
 sudo cp ./files/scripts/core_cleanup.py $FILESYSTEM_ROOT/usr/bin/core_cleanup.py
 
 ## Copy ASIC config checksum
-python files/build_scripts/generate_asic_config_checksum.py
+sudo chmod 755 files/build_scripts/generate_asic_config_checksum.py
+./files/build_scripts/generate_asic_config_checksum.py
 if [[ ! -f './asic_config_checksum' ]]; then
     echo 'asic_config_checksum not found'
     exit 1
@@ -479,8 +486,12 @@ if [ "${enable_organization_extensions}" = "y" ]; then
 fi
 
 ## Setup ebtable rules (rule file is in binary format)
-sudo sed -i 's/EBTABLES_LOAD_ON_START="no"/EBTABLES_LOAD_ON_START="yes"/g' ${FILESYSTEM_ROOT}/etc/default/ebtables
-sudo cp files/image_config/ebtables/ebtables.filter ${FILESYSTEM_ROOT}/etc
+sudo cp -f files/image_config/ebtables/ebtables.default $FILESYSTEM_ROOT/etc/default/ebtables
+sudo cp -f files/image_config/ebtables/ebtables.init $FILESYSTEM_ROOT/etc/init.d/ebtables
+sudo cp -f files/image_config/ebtables/ebtables.service $FILESYSTEM_ROOT/lib/systemd/system/ebtables.service
+sudo cp files/image_config/ebtables/ebtables.filter.cfg ${FILESYSTEM_ROOT}/etc
+sudo LANG=C chroot $FILESYSTEM_ROOT update-alternatives --set ebtables /usr/sbin/ebtables-legacy
+sudo LANG=C chroot $FILESYSTEM_ROOT systemctl enable ebtables.service
 
 ## Debug Image specific changes
 ## Update motd for debug image
@@ -541,7 +552,7 @@ sudo LANG=C chroot $FILESYSTEM_ROOT fuser -vm /proc
 sudo LANG=C chroot $FILESYSTEM_ROOT fuser -km /proc || true
 ## Wait fuser fully kill the processes
 sleep 15
-sudo umount $FILESYSTEM_ROOT/proc || true
+sudo LANG=C chroot $FILESYSTEM_ROOT umount /proc || true
 
 if [[ $CONFIGURED_ARCH == armhf || $CONFIGURED_ARCH == arm64 ]]; then
     # Remove qemu arm bin executable used for cross-building
@@ -565,4 +576,4 @@ pushd $FILESYSTEM_ROOT && sudo tar czf $OLDPWD/$FILESYSTEM_DOCKERFS -C ${DOCKERF
 
 ## Compress together with /boot, /var/lib/docker and $PLATFORM_DIR as an installer payload zip file
 pushd $FILESYSTEM_ROOT && sudo zip $OLDPWD/$ONIE_INSTALLER_PAYLOAD -r boot/ $PLATFORM_DIR/; popd
-sudo zip -g $ONIE_INSTALLER_PAYLOAD $FILESYSTEM_SQUASHFS $FILESYSTEM_DOCKERFS
+sudo zip -g -n .squashfs:.gz $ONIE_INSTALLER_PAYLOAD $FILESYSTEM_SQUASHFS $FILESYSTEM_DOCKERFS

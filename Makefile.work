@@ -9,6 +9,7 @@
 #    through http.
 #  * ENABLE_ZTP: Enables zero touch provisioning.
 #  * SHUTDOWN_BGP_ON_START: Sets admin-down state for all bgp peerings after restart.
+#  * INCLUDE_KUBERNETES: Allows including Kubernetes
 #  * ENABLE_PFCWD_ON_START: Enable PFC Watchdog (PFCWD) on server-facing ports
 #  * by default for TOR switch.
 #  * ENABLE_SYNCD_RPC: Enables rpc-based syncd builds.
@@ -31,6 +32,9 @@
 #  *                 Default: yes
 #  *                 Values:  yes, no
 #  * KERNEL_PROCURE_METHOD: Specifying method of obtaining kernel Debian package: download or build
+#  * TELEMETRY_WRITABLE: Enable write/config operations via the gNMI interface.
+#  *                 Default: unset
+#  *                 Values: y
 #  * SONIC_DPKG_CACHE_METHOD: Specifying method of obtaining the Debian packages from cache: none or cache
 #  * SONIC_DPKG_CACHE_SOURCE: Debian package cache location when cache enabled for debian packages
 #  * BUILD_LOG_TIMESTAMP: Set timestamp in the build log (simple/none)
@@ -41,6 +45,8 @@ SHELL = /bin/bash
 
 USER := $(shell id -un)
 PWD := $(shell pwd)
+
+comma := ,
 
 ifeq ($(USER), root)
 $(error Add your user account to docker group and use your user account to make. root or sudo are not supported!)
@@ -75,11 +81,14 @@ ifeq ($(PLATFORM_ARCH),)
 	override PLATFORM_ARCH = $(CONFIGURED_ARCH)
 endif
 
-ifeq ($(BLDENV), stretch)
+ifeq ($(BLDENV), buster)
+SLAVE_DIR = sonic-slave-buster
+else ifeq ($(BLDENV), stretch)
 SLAVE_DIR = sonic-slave-stretch
 else
 SLAVE_DIR = sonic-slave-jessie
 endif
+
 SLAVE_BASE_TAG = $(shell CONFIGURED_ARCH=$(CONFIGURED_ARCH) j2 $(SLAVE_DIR)/Dockerfile.j2 > $(SLAVE_DIR)/Dockerfile && sha1sum $(SLAVE_DIR)/Dockerfile | awk '{print substr($$1,0,11);}')
 SLAVE_TAG = $(shell cat $(SLAVE_DIR)/Dockerfile.user $(SLAVE_DIR)/Dockerfile | sha1sum | awk '{print substr($$1,0,11);}')
 SLAVE_BASE_IMAGE = $(SLAVE_DIR)
@@ -101,14 +110,23 @@ ifeq ($(DOCKER_BUILDER_WORKDIR),)
 override DOCKER_BUILDER_WORKDIR := "/sonic"
 endif
 
-DOCKER_RUN := docker run --rm=true --privileged \
+DOCKER_RUN := docker run --rm=true --privileged --init \
     -v $(DOCKER_BUILDER_MOUNT) \
     -w $(DOCKER_BUILDER_WORKDIR) \
     -e "http_proxy=$(http_proxy)" \
     -e "https_proxy=$(https_proxy)" \
-    -i$(if $(TERM),t,)
+    -i$(if $(TERM),t,) \
+    $(SONIC_BUILDER_EXTRA_CMDLINE)
 
 include rules/config
+
+ifneq ($(DOCKER_BUILDER_USER_MOUNT),)
+	DOCKER_RUN += $(foreach mount,$(subst $(comma), ,$(DOCKER_BUILDER_USER_MOUNT)), $(addprefix -v , $(mount)))
+endif
+
+ifdef SONIC_BUILD_QUIETER
+	DOCKER_RUN += -e "SONIC_BUILD_QUIETER=$(SONIC_BUILD_QUIETER)"
+endif
 
 ifneq ($(SONIC_DPKG_CACHE_SOURCE),)
 	DOCKER_RUN += -v "$(SONIC_DPKG_CACHE_SOURCE):/dpkg_cache:rw"
@@ -168,14 +186,18 @@ DOCKER_BUILD = docker build --no-cache \
 
 SONIC_BUILD_INSTRUCTION :=  make \
                            -f slave.mk \
-                           BLDENV=$(BLDENV) \
                            PLATFORM=$(PLATFORM) \
                            PLATFORM_ARCH=$(PLATFORM_ARCH) \
                            BUILD_NUMBER=$(BUILD_NUMBER) \
                            BUILD_TIMESTAMP=$(BUILD_TIMESTAMP) \
+                           SONIC_IMAGE_VERSION=$(SONIC_IMAGE_VERSION) \
                            ENABLE_DHCP_GRAPH_SERVICE=$(ENABLE_DHCP_GRAPH_SERVICE) \
                            ENABLE_ZTP=$(ENABLE_ZTP) \
                            SHUTDOWN_BGP_ON_START=$(SHUTDOWN_BGP_ON_START) \
+                           INCLUDE_KUBERNETES=$(INCLUDE_KUBERNETES) \
+                           KUBERNETES_VERSION=$(KUBERNETES_VERSION) \
+                           KUBERNETES_CNI_VERSION=$(KUBERNETES_CNI_VERSION) \
+                           K8s_GCR_IO_PAUSE_VERSION=$(K8s_GCR_IO_PAUSE_VERSION) \
                            SONIC_ENABLE_PFCWD_ON_START=$(ENABLE_PFCWD_ON_START) \
                            SONIC_ENABLE_SYNCD_RPC=$(ENABLE_SYNCD_RPC) \
                            SONIC_INSTALL_DEBUG_TOOLS=$(INSTALL_DEBUG_TOOLS) \
@@ -190,10 +212,12 @@ SONIC_BUILD_INSTRUCTION :=  make \
                            SONIC_DPKG_CACHE_SOURCE=$(SONIC_DPKG_CACHE_SOURCE) \
                            HTTP_PROXY=$(http_proxy) \
                            HTTPS_PROXY=$(https_proxy) \
-                           SONIC_ENABLE_SYSTEM_TELEMETRY=$(ENABLE_SYSTEM_TELEMETRY) \
-                           SONIC_ENABLE_RESTAPI=$(ENABLE_RESTAPI) \
-                           EXTRA_JESSIE_TARGETS=$(EXTRA_JESSIE_TARGETS) \
+                           SONIC_INCLUDE_SYSTEM_TELEMETRY=$(INCLUDE_SYSTEM_TELEMETRY) \
+                           SONIC_INCLUDE_RESTAPI=$(INCLUDE_RESTAPI) \
+                           TELEMETRY_WRITABLE=$(TELEMETRY_WRITABLE) \
+                           EXTRA_DOCKER_TARGETS=$(EXTRA_DOCKER_TARGETS) \
                            BUILD_LOG_TIMESTAMP=$(BUILD_LOG_TIMESTAMP) \
+                           SONIC_ENABLE_IMAGE_SIGNATURE=$(ENABLE_IMAGE_SIGNATURE) \
                            $(SONIC_OVERRIDE_BUILD_VARS)
 
 .PHONY: sonic-slave-build sonic-slave-bash init reset
@@ -209,7 +233,7 @@ ifneq ($(BLDENV), )
 endif
 endif
 	@$(OVERLAY_MODULE_CHECK)
-	
+
 	@docker inspect --type image $(SLAVE_BASE_IMAGE):$(SLAVE_BASE_TAG) &> /dev/null || \
 	    { echo Image $(SLAVE_BASE_IMAGE):$(SLAVE_BASE_TAG) not found. Building... ; \
 	    $(DOCKER_BASE_BUILD) ; }
@@ -226,6 +250,9 @@ else
 	@$(DOCKER_RUN) $(SLAVE_IMAGE):$(SLAVE_TAG) $(SONIC_BUILD_INSTRUCTION) $@
 endif
 
+sonic-slave-base-build :
+	$(DOCKER_BASE_BUILD)
+
 sonic-slave-build :
 	$(DOCKER_BASE_BUILD)
 	$(DOCKER_BUILD)
@@ -239,6 +266,16 @@ sonic-slave-bash :
 	    { echo Image $(SLAVE_IMAGE):$(SLAVE_TAG) not found. Building... ; \
 	    $(DOCKER_BUILD) ; }
 	@$(DOCKER_RUN) -t $(SLAVE_IMAGE):$(SLAVE_TAG) bash
+
+sonic-slave-run :
+	@$(OVERLAY_MODULE_CHECK)
+	@docker inspect --type image $(SLAVE_BASE_IMAGE):$(SLAVE_BASE_TAG) &> /dev/null || \
+	    { echo Image $(SLAVE_BASE_IMAGE):$(SLAVE_BASE_TAG) not found. Building... ; \
+	    $(DOCKER_BASE_BUILD) ; }
+	@docker inspect --type image $(SLAVE_IMAGE):$(SLAVE_TAG) &> /dev/null || \
+	    { echo Image $(SLAVE_IMAGE):$(SLAVE_TAG) not found. Building... ; \
+	    $(DOCKER_BUILD) ; }
+	@$(DOCKER_RUN) $(SLAVE_IMAGE):$(SLAVE_TAG) bash -c "$(SONIC_RUN_CMDS)"
 
 showtag:
 	@echo $(SLAVE_IMAGE):$(SLAVE_TAG)
@@ -262,8 +299,9 @@ reset :
 	        fi
 	        git clean -xfdf;
 	        git reset --hard;
-	        git submodule foreach --recursive git clean -xfdf;
-	        git submodule foreach --recursive git reset --hard;
+	        git submodule foreach --recursive 'git clean -xfdf || true';
+	        git submodule foreach --recursive 'git reset --hard || true';
+	        git submodule foreach --recursive 'git remote update || true';
 	        git submodule update --init --recursive;
 	        echo "Reset complete!";
 	    else

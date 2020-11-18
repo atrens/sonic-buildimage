@@ -21,10 +21,10 @@
 #include "dhcp_devman.h"
 
 /** dhcpmon_default_snaplen: default snap length of packet being captured */
-static const uint32_t dhcpmon_default_snaplen = 65535;
+static const size_t dhcpmon_default_snaplen = 65535;
 /** dhcpmon_default_health_check_window: default value for a time window, during which DHCP DORA packet counts are being
  *  collected */
-static const uint32_t dhcpmon_default_health_check_window = 12;
+static const uint32_t dhcpmon_default_health_check_window = 18;
 /** dhcpmon_default_unhealthy_max_count: default max consecutive unhealthy status reported before reporting an issue
  *  with DHCP relay */
 static const uint32_t dhcpmon_default_unhealthy_max_count = 10;
@@ -40,7 +40,7 @@ static const uint32_t dhcpmon_default_unhealthy_max_count = 10;
  */
 static void usage(const char *prog)
 {
-    printf("Usage: %s -id <south interface> {-iu <north interface>}+ [-w <snapshot window in sec>]"
+    printf("Usage: %s -id <south interface> {-iu <north interface>}+ -im <mgmt interface> [-w <snapshot window in sec>]"
             "[-c <unhealthy status count>] [-s <snap length>] [-d]\n", prog);
     printf("where\n");
     printf("\tsouth interface: is a vlan interface,\n");
@@ -50,7 +50,7 @@ static void usage(const char *prog)
     printf("\tunhealthy status count: count of consecutive unhealthy status before writing an alert to syslog "
            "(default %d),\n",
            dhcpmon_default_unhealthy_max_count);
-    printf("\tsnap length: snap length of packet capture (default %d),\n", dhcpmon_default_snaplen);
+    printf("\tsnap length: snap length of packet capture (default %ld),\n", dhcpmon_default_snaplen);
     printf("\t-d: daemonize %s.\n", prog);
 
     exit(EXIT_SUCCESS);
@@ -109,7 +109,7 @@ int main(int argc, char **argv)
     int i;
     int window_interval = dhcpmon_default_health_check_window;
     int max_unhealthy_count = dhcpmon_default_unhealthy_max_count;
-    uint32_t snaplen = dhcpmon_default_snaplen;
+    size_t snaplen = dhcpmon_default_snaplen;
     int make_daemon = 0;
 
     setlogmask(LOG_UPTO(LOG_INFO));
@@ -127,7 +127,7 @@ int main(int argc, char **argv)
             usage(basename(argv[0]));
             break;
         case 'i':
-            if (dhcp_devman_add_intf(argv[i + 1], argv[i][2] == 'u') != 0) {
+            if (dhcp_devman_add_intf(argv[i + 1], argv[i][2]) != 0) {
                 usage(basename(argv[0]));
             }
             i += 2;

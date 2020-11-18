@@ -17,18 +17,32 @@
 {% endfor %}
         }
     },
+{%- set features = [("bgp", "enabled", false, "enabled"),
+                   ("database", "enabled", false, "disabled"),
+                   ("dhcp_relay", "enabled", false, "enabled"),
+                   ("lldp", "enabled", false, "enabled"),
+                   ("pmon", "enabled", false, "enabled"),
+                   ("radv", "enabled", false, "enabled"),
+                   ("snmp", "enabled", true, "enabled"),
+                   ("swss", "enabled", false, "enabled"),
+                   ("syncd", "enabled", false, "enabled"),
+                   ("teamd", "enabled", false, "enabled")] %}
+{%- if sonic_asic_platform == "vs" %}{% do features.append(("gbsyncd", "enabled", false, "enabled")) %}{% endif %}
+{%- if include_iccpd == "y" %}{% do features.append(("iccpd", "disabled", false, "enabled")) %}{% endif %}
+{%- if include_mgmt_framework == "y" %}{% do features.append(("mgmt-framework", "enabled", true, "enabled")) %}{% endif %}
+{%- if include_nat == "y" %}{% do features.append(("nat", "disabled", false, "enabled")) %}{% endif %}
+{%- if include_restapi == "y" %}{% do features.append(("restapi", "enabled", false, "enabled")) %}{% endif %}
+{%- if include_sflow == "y" %}{% do features.append(("sflow", "disabled", false, "enabled")) %}{% endif %}
+{%- if include_system_telemetry == "y" %}{% do features.append(("telemetry", "enabled", true, "enabled")) %}{% endif %}
     "FEATURE": {
-{%- for feature in ["sflow", "telemetry"] %}
+{# has_timer field if set, will start the feature systemd .timer unit instead of .service unit #}
+{%- for feature, state, has_timer, autorestart in features %}
         "{{feature}}": {
-            "status": "disabled"
-        }{% if not loop.last %},{% endif -%}
-{% endfor %}
-    },
-    "CONTAINER_FEATURE": {
-{%- for container in ["bgp", "database", "dhcp_relay", "lldp", "nat", "pmon", "radv", "restapi", "sflow",
-                      "snmp", "swss", "syncd", "teamd", "telemetry"] %}
-        "{{container}}": {
-            "auto_restart": "disabled",
+            "state": "{{state}}",
+            "has_timer" : {{has_timer | lower()}},
+            "has_global_scope": {% if feature + '.service' in installer_services.split(' ') %}true{% else %}false{% endif %},
+            "has_per_asic_scope": {% if feature + '@.service' in installer_services.split(' ') %}true{% else %}false{% endif %},
+            "auto_restart": "{{autorestart}}",
             "high_mem_alert": "disabled"
         }{% if not loop.last %},{% endif -%}
 {% endfor %}

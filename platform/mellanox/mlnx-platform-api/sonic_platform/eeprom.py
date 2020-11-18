@@ -80,12 +80,28 @@ class Eeprom(eeprom_tlvinfo.TlvInfoDecoder):
             pass
 
         self._base_mac = self.mgmtaddrstr(eeprom)
-        if self._base_mac == None:
+        if self._base_mac is None:
             self._base_mac = "Undefined."
+        else:
+            self._base_mac = self._base_mac.strip('\0')
 
         self._serial_str = self.serial_number_str(eeprom)
-        if self._serial_str == None:
+        if self._serial_str is None:
             self._serial_str = "Undefined."
+        else:
+            self._serial_str = self._serial_str.strip('\0')
+
+        self._product_name = self.modelstr(eeprom)
+        if self._product_name is None:
+            self._product_name = "Undefined."
+        else:
+            self._product_name = self._product_name.strip('\0')
+
+        self._part_number = self.part_number_str(eeprom)
+        if self._part_number is None:
+            self._part_number = "Undefined."
+        else:
+            self._part_number = self._part_number.strip('\0')
 
         original_stdout = sys.stdout
         sys.stdout = StringIO()
@@ -101,7 +117,7 @@ class Eeprom(eeprom_tlvinfo.TlvInfoDecoder):
 
         for line in lines:
             try:
-                match = re.search('(0x[0-9a-fA-F]{2})([\s]+[\S]+[\s]+)([\S]+)', line)
+                match = re.search('(0x[0-9a-fA-F]{2})([\s]+[\S]+[\s]+)([\S]+[\s]*[\S]*)', line)
                 if match is not None:
                     idx = match.group(1)
                     value = match.group(3).rstrip('\0')
@@ -134,6 +150,28 @@ class Eeprom(eeprom_tlvinfo.TlvInfoDecoder):
         if not self._eeprom_loaded:
             self._load_eeprom()
         return self._serial_str
+
+    def get_product_name(self):
+        """
+        Retrieves the hardware product name for the chassis
+
+        Returns:
+            A string containing the hardware product name for this chassis.
+        """
+        if not self._eeprom_loaded:
+            self._load_eeprom()
+        return self._product_name
+
+    def get_part_number(self):
+        """
+        Retrieves the hardware part number for the chassis
+
+        Returns:
+            A string containing the hardware part number for this chassis.
+        """
+        if not self._eeprom_loaded:
+            self._load_eeprom()
+        return self._part_number
 
     def get_system_eeprom_info(self):
         """

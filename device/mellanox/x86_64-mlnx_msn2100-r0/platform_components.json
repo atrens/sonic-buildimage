@@ -1,9 +1,12 @@
 {
     "chassis": {
-        "x86_64-mlnx_msn2100-r0": {
+        "MSN2100": {
             "component": {
+                "ONIE": { },
+                "SSD": { },
                 "BIOS": { },
-                "CPLD": { }
+                "CPLD1": { },
+                "CPLD2": { }
             }
         }
     }

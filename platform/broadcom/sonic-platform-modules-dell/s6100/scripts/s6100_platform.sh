@@ -7,6 +7,7 @@ install_python_api_package() {
     platform=$(/usr/local/bin/sonic-cfggen -H -v DEVICE_METADATA.localhost.platform)
 
     rv=$(pip install $device/$platform/sonic_platform-1.0-py2-none-any.whl)
+    rv=$(pip3 install $device/$platform/sonic_platform-1.0-py3-none-any.whl)
 }
 
 remove_python_api_package() {
@@ -14,10 +15,17 @@ remove_python_api_package() {
     if [ $? -eq 0 ]; then
         rv=$(pip uninstall -y sonic-platform > /dev/null 2>/dev/null)
     fi
+
+    rv=$(pip3 show sonic-platform > /dev/null 2>/dev/null)
+    if [ $? -eq 0 ]; then
+        rv=$(pip3 uninstall -y sonic-platform > /dev/null 2>/dev/null)
+    fi
 }
 
 
 if [[ "$1" == "init" ]]; then
+
+    pericom="/sys/bus/pci/devices/0000:08:00.0"
     modprobe i2c-dev
     modprobe i2c-mux-pca954x force_deselect_on_exit=1
     modprobe dell_ich
@@ -25,6 +33,10 @@ if [[ "$1" == "init" ]]; then
     modprobe dell_s6100_lpc
     modprobe nvram
     systemctl start s6100-reboot-cause.service
+
+    # Disable pericom/xilinx
+    echo 1 > /sys/bus/pci/devices/0000:02:00.0/remove
+    [ -d $pericom ] &&  echo 1 > $pericom/remove
 
     # Disable Watchdog Timer
     if [[ -e /usr/local/bin/platform_watchdog_disable.sh ]]; then

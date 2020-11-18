@@ -126,6 +126,9 @@
           <SubInterface/>
         </PortChannel>
       </PortChannelInterfaces>
+      <TunnelInterfaces>
+        <TunnelInterface Name="MuxTunnel0" Type="IPInIP" AttachTo="Loopback0" DifferentiatedServicesCodePointMode="uniform" EcnEncapsulationMode="standard" EcnDecapsulationMode="copy_from_outer" TtlMode="pipe" />
+      </TunnelInterfaces>
       <VlanInterfaces>
         <VlanInterface>
           <Name>ab1</Name>
@@ -134,6 +137,7 @@
           <VlanID>1000</VlanID>
           <Tag>1000</Tag>
           <Subnets>192.168.0.0/27</Subnets>
+          <MacAddress>00:aa:bb:cc:dd:ee</MacAddress>
         </VlanInterface>
       </VlanInterfaces>
       <IPInterfaces>
@@ -200,10 +204,84 @@
         <StartDevice>switch-01t1</StartDevice>
         <StartPort>port1</StartPort>
       </DeviceLinkBase>
+      <DeviceLinkBase i:type="DeviceInterfaceLink">
+        <ElementType>DeviceInterfaceLink</ElementType>
+        <AutoNegotiation>true</AutoNegotiation>
+        <Bandwidth>10000</Bandwidth>
+        <EndDevice>switch-t0</EndDevice>
+        <EndPort>fortyGigE0/12</EndPort>
+        <StartDevice>switch-02t1</StartDevice>
+        <StartPort>port1</StartPort>
+      </DeviceLinkBase>
+      <DeviceLinkBase i:type="DeviceInterfaceLink">
+        <ElementType>DeviceInterfaceLink</ElementType>
+        <AutoNegotiation>true</AutoNegotiation>
+        <Bandwidth>25000</Bandwidth>
+        <EndDevice>switch-t0</EndDevice>
+        <EndPort>fortyGigE0/4</EndPort>
+        <StartDevice>server1</StartDevice>
+        <StartPort>port1</StartPort>
+      </DeviceLinkBase>
+      <DeviceLinkBase i:type="DeviceInterfaceLink">
+        <ElementType>DeviceInterfaceLink</ElementType>
+        <AutoNegotiation>true</AutoNegotiation>
+        <Bandwidth>40000</Bandwidth>
+        <EndDevice>switch-t0</EndDevice>
+        <EndPort>fortyGigE0/8</EndPort>
+        <StartDevice>server2</StartDevice>
+        <StartPort>port1</StartPort>
+      </DeviceLinkBase>
+      <DeviceLinkBase i:type="LogicalLink">
+        <ElementType>LogicalLink</ElementType>
+        <Bandwidth>10000</Bandwidth>
+        <ChassisInternal>false</ChassisInternal>
+        <EndDevice>switch-t0</EndDevice>
+        <EndPort>fortyGigE0/4</EndPort>
+        <FlowControl>true</FlowControl>
+        <StartDevice>mux-cable</StartDevice>
+        <StartPort>L</StartPort>
+        <Validate>true</Validate>
+      </DeviceLinkBase>
+      <DeviceLinkBase i:type="LogicalLink">
+        <ElementType>LogicalLink</ElementType>
+        <Bandwidth>10000</Bandwidth>
+        <ChassisInternal>false</ChassisInternal>
+        <EndDevice>switch-t0</EndDevice>
+        <EndPort>fortyGigE0/8</EndPort>
+        <FlowControl>true</FlowControl>
+        <StartDevice>mux-cable</StartDevice>
+        <StartPort>U</StartPort>
+        <Validate>true</Validate>
+      </DeviceLinkBase>
+      <DeviceLinkBase i:type="LogicalLink">
+        <ElementType>LogicalLink</ElementType>
+        <Bandwidth>0</Bandwidth>
+        <ChassisInternal>false</ChassisInternal>
+        <EndDevice>switch-t0</EndDevice>
+        <EndPort>MuxTunnel0</EndPort>
+        <FlowControl>false</FlowControl>
+        <StartDevice>switch2-t0</StartDevice>
+        <StartPort>MuxTunnel0</StartPort>
+        <Validate>true</Validate>
+      </DeviceLinkBase>
     </DeviceInterfaceLinks>
     <Devices>
       <Device i:type="ToRRouter">
+        <Address xmlns:d5p1="Microsoft.Search.Autopilot.NetMux">
+          <d5p1:IPPrefix>26.1.1.10</d5p1:IPPrefix>
+        </Address>
         <Hostname>switch-t0</Hostname>
+        <HwSku>Force10-S6000</HwSku>
+        <ClusterName>AAA00PrdStr00</ClusterName>
+      </Device>
+      <Device i:type="ToRRouter">
+        <Address xmlns:d5p1="Microsoft.Search.Autopilot.NetMux">
+          <d5p1:IPPrefix>25.1.1.10</d5p1:IPPrefix>
+        </Address>
+        <ManagementAddress xmlns:a="Microsoft.Search.Autopilot.NetMux">
+          <a:IPPrefix>10.7.0.196/26</a:IPPrefix>
+        </ManagementAddress>
+        <Hostname>switch2-t0</Hostname>
         <HwSku>Force10-S6000</HwSku>
       </Device>
       <Device i:type="LeafRouter">
@@ -218,8 +296,61 @@
         </ManagementAddress> 
         <HwSku>Force10-S6000</HwSku>
       </Device>
+      <Device i:type="Server">
+        <ElementType>Server</ElementType>
+        <Address xmlns:d5p1="Microsoft.Search.Autopilot.NetMux">
+          <d5p1:IPPrefix>10.10.10.1/32</d5p1:IPPrefix>
+        </Address>
+        <AddressV6 xmlns:d5p1="Microsoft.Search.Autopilot.NetMux">
+          <d5p1:IPPrefix>fe80::0001/128</d5p1:IPPrefix>
+        </AddressV6>
+        <ManagementAddress xmlns:d5p1="Microsoft.Search.Autopilot.NetMux">
+          <d5p1:IPPrefix>10.0.0.1/32</d5p1:IPPrefix>
+        </ManagementAddress>
+        <Hostname>server1</Hostname>
+        <HwSku>server-sku</HwSku>
+      </Device>
+      <Device i:type="Server">
+        <ElementType>Server</ElementType>
+        <Address xmlns:d5p1="Microsoft.Search.Autopilot.NetMux">
+          <d5p1:IPPrefix>10.10.10.2/32</d5p1:IPPrefix>
+        </Address>
+        <AddressV6 xmlns:d5p1="Microsoft.Search.Autopilot.NetMux">
+          <d5p1:IPPrefix>fe80::0002/128</d5p1:IPPrefix>
+        </AddressV6>
+        <ManagementAddress xmlns:d5p1="Microsoft.Search.Autopilot.NetMux">
+          <d5p1:IPPrefix>10.0.0.2/32</d5p1:IPPrefix>
+        </ManagementAddress>
+        <Hostname>server2</Hostname>
+        <HwSku>server-sku</HwSku>
+      </Device>
     </Devices>
   </PngDec>
+<LinkMetadataDeclaration>
+  <Link xmlns:d3p1="http://schemas.datacontract.org/2004/07/Microsoft.Search.Autopilot.Evolution">
+    <d3p1:LinkMetadata>
+        <d3p1:Name i:nil="true" />
+        <d3p1:Properties>
+          <d3p1:DeviceProperty>
+            <d3p1:Name>GeminiPeeringLink</d3p1:Name>
+            <d3p1:Reference i:nil="true" />
+            <d3p1:Value>True</d3p1:Value>
+          </d3p1:DeviceProperty>
+          <d3p1:DeviceProperty>
+            <d3p1:Name>UpperTOR</d3p1:Name>
+            <d3p1:Reference i:nil="true" />
+            <d3p1:Value>switch-t0</d3p1:Value>
+          </d3p1:DeviceProperty>
+          <d3p1:DeviceProperty>
+            <d3p1:Name>LowerTOR</d3p1:Name>
+            <d3p1:Reference i:nil="true" />
+            <d3p1:Value>switch2-t0</d3p1:Value>
+          </d3p1:DeviceProperty>
+        </d3p1:Properties>
+        <d3p1:Key>switch2-t0:MuxTunnel0;switch-t0:MuxTunnel0</d3p1:Key>
+      </d3p1:LinkMetadata>
+  </Link>
+</LinkMetadataDeclaration>
 <MetadataDeclaration>
  <Devices xmlns:a="http://schemas.datacontract.org/2004/07/Microsoft.Search.Autopilot.Evolution">
   <a:DeviceMetadata>
@@ -340,6 +471,6 @@
       </ManagementInterfaces>
     </DeviceInfo>
   </DeviceInfos>
-  <Hostname>switch-T0</Hostname>
+  <Hostname>switch-t0</Hostname>
   <HwSku>Force10-S6000</HwSku>
 </DeviceMiniGraph>

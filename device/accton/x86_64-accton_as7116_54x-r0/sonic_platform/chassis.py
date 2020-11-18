@@ -14,7 +14,7 @@ try:
     import json
     import syslog
     from sonic_platform_base.chassis_base import ChassisBase
-    from sonic_daemon_base.daemon_base import Logger
+    from sonic_py_common.logger import Logger
     from sonic_platform.fan import Fan
     from sonic_platform.psu import Psu
     from sonic_platform.component import Component
@@ -93,7 +93,7 @@ class Chassis(ChassisBase):
         """
         return self._eeprom.get_mac()
 
-    def get_serial_number(self):
+    def get_serial(self):
         """
         Retrieves the hardware serial number for the chassis
         Returns:

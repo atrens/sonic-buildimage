@@ -216,6 +216,16 @@
      <a:Value>1</a:Value>
     </a:DeviceProperty>
     <a:DeviceProperty>
+     <a:Name>Region</a:Name>
+     <a:Reference i:nil="true"/>
+     <a:Value>usfoo</a:Value>
+    </a:DeviceProperty>
+    <a:DeviceProperty>
+     <a:Name>CloudType</a:Name>
+     <a:Reference i:nil="true"/>
+     <a:Value>Public</a:Value>
+    </a:DeviceProperty>
+    <a:DeviceProperty>
      <a:Name>ErspanDestinationIpv4</a:Name>
      <a:Reference i:nil="true"/>
      <a:Value>10.0.100.1</a:Value>
@@ -242,6 +252,11 @@
      <a:Name>TacacsServer</a:Name>
      <a:Reference i:nil="true"/>
      <a:Value>10.0.10.7;10.0.10.8</a:Value>
+    </a:DeviceProperty>
+    <a:DeviceProperty>
+     <a:Name>ResourceType</a:Name>
+     <a:Reference i:nil="true"/>
+     <a:Value>resource_type_x</a:Value>
     </a:DeviceProperty>
   </a:Properties>
   </a:DeviceMetadata>

@@ -1,5 +1,5 @@
 {% from "dockers/dockerfile-macros.j2" import install_debian_packages, install_python_wheels, copy_files %}
-FROM docker-config-engine-stretch
+FROM docker-config-engine-buster
 
 ARG docker_container_name
 RUN [ -f /etc/rsyslog.conf ] && sed -ri "s/%syslogtag%/$docker_container_name#%syslogtag%/;" /etc/rsyslog.conf
@@ -10,15 +10,27 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install required packages
 RUN apt-get update &&   \
     apt-get install -y  \
-        python-pip      \
-        libpython2.7    \
+        python-dev      \
+        python3-dev     \
         ipmitool        \
         librrd8         \
         librrd-dev      \
         rrdtool         \
         python-smbus    \
         ethtool         \
-        dmidecode
+        dmidecode       \
+        i2c-tools       \
+        python-jsonschema
+
+# On Arista devices, the sonic_platform wheel is not installed in the container.
+# Instead, the installation directory is mounted from the host OS. However, this method
+# doesn't ensure all dependencies are installed in the container. So here we
+# install any dependencies required by the Arista sonic_platform package.
+# TODO: eliminate the need to install these explicitly.
+# NOTE: Only install enum34 for Python 2, as our version of Python 3 is 3.7, which
+# contains 'enum' as part of the standard library. Installing enum34 there will
+# cause conflicts.
+RUN pip2 install enum34
 
 {% if docker_platform_monitor_debs.strip() -%}
 # Copy locally-built Debian package dependencies
@@ -46,7 +58,8 @@ RUN apt-get update &&   \
 
 # Clean up
 RUN apt-get purge -y           \
-        python-pip          && \
+        python-dev             \
+        python3-dev         && \
     apt-get clean -y        && \
     apt-get autoclean -y    && \
     apt-get autoremove -y   && \
@@ -54,8 +67,8 @@ RUN apt-get purge -y           \
            /python-wheels      \
            ~/.cache
 
-COPY ["docker_init.sh", "lm-sensors.sh", "/usr/bin/"]
-COPY ["docker-pmon.supervisord.conf.j2", "start.sh.j2", "/usr/share/sonic/templates/"]
+COPY ["docker_init.sh", "lm-sensors.sh", "start.sh", "/usr/bin/"]
+COPY ["docker-pmon.supervisord.conf.j2", "/usr/share/sonic/templates/"]
 COPY ["ssd_tools/*", "/usr/bin/"]
 COPY ["files/supervisor-proc-exit-listener", "/usr/bin"]
 COPY ["critical_processes", "/etc/supervisor"]

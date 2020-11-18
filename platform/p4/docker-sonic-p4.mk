@@ -8,10 +8,11 @@ $(DOCKER_SONIC_P4)_DEPENDS += $(SWSS) \
                               $(REDIS_TOOLS) \
                               $(REDIS_SERVER) \
                               $(PYTHON_SWSSCOMMON) \
-                              $(LIBTEAMDCT) \
+                              $(PYTHON3_SWSSCOMMON) \
+                              $(LIBTEAMDCTL) \
                               $(LIBTEAM_UTILS) \
                               $(SONIC_DEVICE_DATA) \
-                              $(SONIC_UTILS) \
+                              $(SONIC_UTILITIES_PY2) \
                               $(IPROUTE2)
 
 # ifeq ($(ROUTING_STACK), quagga)
@@ -23,7 +24,8 @@ $(DOCKER_SONIC_P4)_DEPENDS += $(QUAGGA)
 # endif
 
 $(DOCKER_SONIC_P4)_FILES += $(CONFIGDB_LOAD_SCRIPT) \
-                            $(ARP_UPDATE_SCRIPT)
+                            $(ARP_UPDATE_SCRIPT) \
+                            $(ARP_UPDATE_VARS_TEMPLATE)
 
 $(DOCKER_SONIC_P4)_LOAD_DOCKERS += $(DOCKER_CONFIG_ENGINE)
 SONIC_DOCKER_IMAGES += $(DOCKER_SONIC_P4)

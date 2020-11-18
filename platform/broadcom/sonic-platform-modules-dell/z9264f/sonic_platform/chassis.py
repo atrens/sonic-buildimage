@@ -11,18 +11,19 @@
 try:
     import os
     import select
+    import sys
     from sonic_platform_base.chassis_base import ChassisBase
     from sonic_platform.sfp import Sfp
     from sonic_platform.eeprom import Eeprom
     from sonic_platform.component import Component
     from sonic_platform.psu import Psu
-    from sonic_platform.fan import Fan
+    from sonic_platform.watchdog import Watchdog
+    from sonic_platform.fan_drawer import FanDrawer
     from sonic_platform.thermal import Thermal
 except ImportError as e:
     raise ImportError(str(e) + "- required module not found")
 
 MAX_Z9264F_FANTRAY =4
-MAX_Z9264F_FAN = 2
 MAX_Z9264F_COMPONENT = 8 # BIOS,BMC,FPGA,SYSTEM CPLD,4 SLAVE CPLDs
 MAX_Z9264F_PSU = 2
 MAX_Z9264F_THERMAL = 8
@@ -48,7 +49,7 @@ class Chassis(ChassisBase):
         self.PORT_START = 1
         self.PORT_END = 66
         PORTS_IN_BLOCK = (self.PORT_END + 1)
-        _sfp_port = range(65, self.PORT_END + 1)
+        _sfp_port = list(range(65, self.PORT_END + 1))
         eeprom_base = "/sys/class/i2c-adapter/i2c-{0}/{0}-0050/eeprom"
 
         for index in range(self.PORT_START, PORTS_IN_BLOCK):
@@ -61,24 +62,26 @@ class Chassis(ChassisBase):
             self._sfp_list.append(sfp_node)
 
         self._eeprom = Eeprom()
-        
+
+        self._watchdog = Watchdog()
+
         for i in range(MAX_Z9264F_COMPONENT):
             component = Component(i)
             self._component_list.append(component)
-            
+
         for i in range(MAX_Z9264F_PSU):
             psu = Psu(i)
             self._psu_list.append(psu)
 
         for i in range(MAX_Z9264F_FANTRAY):
-            for j in range(MAX_Z9264F_FAN):
-                fan = Fan(i,j)
-                self._fan_list.append(fan)
+            fandrawer = FanDrawer(i)
+            self._fan_drawer_list.append(fandrawer)
+            self._fan_list.extend(fandrawer._fan_list)
 
         for i in range(MAX_Z9264F_THERMAL):
             thermal = Thermal(i)
             self._thermal_list.append(thermal)
-        
+
         for port_num in range(self.PORT_START, (self.PORT_END + 1)):
             presence = self.get_sfp(port_num).get_presence()
             if presence:
@@ -95,7 +98,7 @@ class Chassis(ChassisBase):
     def _get_register(self, reg_file):
         retval = 'ERR'
         if (not os.path.isfile(reg_file)):
-            print reg_file,  'not found !'
+            print(reg_file,  'not found !')
             return retval
 
         try:
@@ -254,14 +257,6 @@ class Chassis(ChassisBase):
             'XX:XX:XX:XX:XX:XX'
         """
         return self._eeprom.base_mac_addr()
-
-    def get_serial_number(self):
-        """
-        Retrieves the hardware serial number for the chassis
-        Returns:
-            A string containing the hardware serial number for this chassis.
-        """
-        return self._eeprom.serial_number_str()
 
     def get_system_eeprom_info(self):
         """

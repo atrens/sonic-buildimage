@@ -49,9 +49,13 @@ class Thermal(ThermalBase):
         self.thermal_temperature_file = self.HWMON_DIR \
             + "temp{}_input".format(hwmon_temp_index)
         self.thermal_high_threshold_file = self.HWMON_DIR \
-            + "temp{}_crit".format(hwmon_temp_index)
+            + "temp{}_max".format(hwmon_temp_index)
         self.thermal_low_threshold_file = self.HWMON_DIR \
             + "temp{}_min".format(hwmon_temp_index)
+
+        if not self.is_cpu_thermal:
+            self.thermal_high_crit_threshold_file = self.HWMON_DIR \
+                + "temp{}_crit".format(hwmon_temp_index)
 
     def _read_sysfs_file(self, sysfs_file):
         # On successful read, returns the value read from given
@@ -138,11 +142,11 @@ class Thermal(ThermalBase):
         thermal_temperature = self._read_sysfs_file(
             self.thermal_temperature_file)
         if (thermal_temperature != 'ERR'):
-            thermal_temperature = float(thermal_temperature) / 1000
+            thermal_temperature = float(thermal_temperature)
         else:
             thermal_temperature = 0
 
-        return "{:.3f}".format(thermal_temperature)
+        return thermal_temperature / 1000.0
 
     def get_high_threshold(self):
         """
@@ -156,11 +160,11 @@ class Thermal(ThermalBase):
         thermal_high_threshold = self._read_sysfs_file(
             self.thermal_high_threshold_file)
         if (thermal_high_threshold != 'ERR'):
-            thermal_high_threshold = float(thermal_high_threshold) / 1000
+            thermal_high_threshold = float(thermal_high_threshold)
         else:
             thermal_high_threshold = 0
 
-        return "{:.3f}".format(thermal_high_threshold)
+        return thermal_high_threshold / 1000.0
 
     def get_low_threshold(self):
         """
@@ -174,11 +178,32 @@ class Thermal(ThermalBase):
         thermal_low_threshold = self._read_sysfs_file(
             self.thermal_low_threshold_file)
         if (thermal_low_threshold != 'ERR'):
-            thermal_low_threshold = float(thermal_low_threshold) / 1000
+            thermal_low_threshold = float(thermal_low_threshold)
         else:
             thermal_low_threshold = 0
 
-        return "{:.3f}".format(thermal_low_threshold)
+        return thermal_low_threshold / 1000.0
+
+    def get_high_critical_threshold(self):
+        """
+        Retrieves the high critical threshold temperature of thermal
+
+        Returns:
+            A float number, the high critical threshold temperature of
+            thermal in Celsius up to nearest thousandth of one degree
+            Celsius, e.g. 30.125
+        """
+        if self.is_cpu_thermal:
+            return super(Thermal, self).get_high_critical_threshold()
+
+        thermal_high_crit_threshold = self._read_sysfs_file(
+            self.thermal_high_crit_threshold_file)
+        if (thermal_high_crit_threshold != 'ERR'):
+            thermal_high_crit_threshold = float(thermal_high_crit_threshold)
+        else:
+            thermal_high_crit_threshold = 0
+
+        return thermal_high_crit_threshold / 1000.0
 
     def set_high_threshold(self, temperature):
         """

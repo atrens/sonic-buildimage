@@ -87,7 +87,7 @@ class Fan(FanBase):
         cpld_reg_file = self.CPLD_DIR + reg_name
 
         if (not os.path.isfile(cpld_reg_file)):
-            print "open error"
+            print("open error")
             return rv
 
         try:
@@ -186,7 +186,7 @@ class Fan(FanBase):
             string: Part number of Fan
         """
         if not self.is_psu_fan:
-            return self.eeprom.part_number_str()
+            return self.eeprom.get_part_number()
         else:
             return 'NA'
 
@@ -199,7 +199,7 @@ class Fan(FanBase):
         """
         # Sample Serial number format "US-01234D-54321-25A-0123-A00"
         if not self.is_psu_fan:
-            return self.eeprom.serial_number_str()
+            return self.eeprom.get_serial_number()
         else:
             return 'NA'
 
@@ -251,7 +251,7 @@ class Fan(FanBase):
         fan_speed = self._get_i2c_register(self.get_fan_speed_reg)
         if (fan_speed != 'ERR') and self.get_presence():
             speed_in_rpm = int(fan_speed, 10)
-            speed = (100 * speed_in_rpm)/self.max_fan_speed
+            speed = (100 * speed_in_rpm)//self.max_fan_speed
         else:
             speed = 0
 

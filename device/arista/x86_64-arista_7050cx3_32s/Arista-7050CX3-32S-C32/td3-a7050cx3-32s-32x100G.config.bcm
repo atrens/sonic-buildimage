@@ -1,6 +1,6 @@
 arl_clean_timeout_usec=15000000
 asf_mem_profile=2
-bcm_num_cos=8
+bcm_num_cos=10
 bcm_stat_flags=1
 bcm_stat_jumbo=9236
 bcm_tunnel_term_compatible_mode=1
@@ -35,7 +35,6 @@ port_phy_addr=0xff
 robust_hash_disable_egress_vlan=1
 robust_hash_disable_mpls=1
 robust_hash_disable_vlan=1
-sram_scan_enable=0
 stable_size=0x5500000
 tdma_timeout_usec=15000000
 tslam_timeout_usec=15000000
